@@ -1,0 +1,89 @@
+openapi: 3.0.0
+info:
+  title: Companies API
+  version: 1.0.0
+  description: API for managing companies within a tenant.
+
+paths:
+  /api/companies:
+    get:
+      summary: List all companies for the current tenant
+      tags:
+        - Companies
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: A list of companies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Company'
+        '401':
+          description: Unauthorized
+
+    post:
+      summary: Create a new company
+      tags:
+        - Companies
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                nip:
+                  type: string
+              required:
+                - name
+                - nip
+      responses:
+        '201':
+          description: Company created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+
+components:
+  schemas:
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        nip:
+          type: string
+        address:
+          type: string
+        isVerified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: supabase-auth-token

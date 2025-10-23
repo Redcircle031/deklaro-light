@@ -1,0 +1,12 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "files.exclude": {
+    "supabase/functions": true
+  },
+  "search.exclude": {
+    "supabase/functions": true
+  },
+  "typescript.exclude": [
+    "supabase/functions/**/*"
+  ]
+}

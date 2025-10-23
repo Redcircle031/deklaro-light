@@ -1,0 +1,91 @@
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] [Chromium] › tests\e2e\complete-invoice-flow.spec.ts:28:7 › Complete Invoice Processing Flow › Full journey: Upload → OCR → Extraction → Email
+[1A[2K[Chromium] › tests\e2e\complete-invoice-flow.spec.ts:28:7 › Complete Invoice Processing Flow › Full journey: Upload → OCR → Extraction → Email
+
+🚀 Starting Complete Invoice Processing Flow Test
+
+
+[1A[2K📝 STEP 1: Logging in...
+
+[1A[2K✅ Login successful
+
+[1A[2K
+📂 STEP 2: Navigating to invoices page...
+
+[1A[2K✅ Invoices page loaded
+
+[1A[2K📊 Initial invoice count: 0
+
+[1A[2K
+📄 STEP 3: Creating test invoice PDF...
+
+[1A[2K✅ Test invoice PDF created
+
+[1A[2K
+📤 STEP 4: Uploading invoice...
+
+[1A[2K✅ File selected
+
+[1A[2K📌 Clicking upload button...
+
+[1A[2K✅ Upload button clicked
+
+[1A[2K
+⏳ STEP 5: Waiting for upload to complete...
+
+[1A[2K⚠️  Upload response not captured, checking page state...
+
+[1A[2K
+📋 STEP 6: Verifying invoice appears in list...
+
+[1A[2K📊 Updated invoice count: 0
+
+[1A[2K⚠️  Invoice count unchanged - may still be processing
+
+[1A[2K
+📧 STEP 8: Email notification check...
+
+[1A[2Kℹ️  Check server logs for email notification:
+
+[1A[2K   - Look for "[Email] Sending invoice processing complete notification"
+
+[1A[2K   - Look for Resend API call logs
+
+[1A[2K   - Email should be sent to: test@deklaro.com
+
+[1A[2K
+
+
+[1A[2K═══════════════════════════════════════════════════════
+
+[1A[2K✅ COMPLETE INVOICE FLOW TEST FINISHED
+
+[1A[2K═══════════════════════════════════════════════════════
+
+[1A[2K
+
+[1A[2KTest Results:
+
+[1A[2K  ✅ Login successful
+
+[1A[2K  ✅ Invoice uploaded
+
+[1A[2K  ⏳ Invoice in database
+
+[1A[2K  ⏳ OCR processing (may take up to 3 minutes)
+
+[1A[2K  ⏳ Email notification (check server logs)
+
+[1A[2K
+
+[1A[2KScreenshots saved to: test-results/
+
+[1A[2K═══════════════════════════════════════════════════════
+
+[1A[2K
+
+[1A[2K🧹 Cleaned up test invoice PDF
+
+[1A[2K  1 passed (54.2s)

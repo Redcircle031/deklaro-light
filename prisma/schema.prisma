@@ -1,0 +1,346 @@
+// Deklaro Invoice Management Platform - Database Schema
+// Feature: 001-deklaro-mvp
+// Generated: 2025-10-08
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // For migrations with connection pooling
+  schemas  = ["public", "tenant"]
+}
+
+// ============================================================================
+// PUBLIC SCHEMA - System-wide entities
+// ============================================================================
+
+model Tenant {
+  id               String           @id @default(cuid())
+  name             String
+  slug             String           @unique
+  subscription     SubscriptionTier @default(STARTER)
+  settings         Json?            // Tenant-specific settings
+  stripeCustomerId String?          @unique
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  users    TenantUser[]
+  companies Company[]
+  invoices Invoice[]
+  usageRecords UsageRecord[]
+
+  @@map("tenants")
+  @@schema("public")
+}
+
+enum SubscriptionTier {
+  STARTER      // 100 invoices/month, 2 users
+  PRO          // 500 invoices/month, 10 users
+  ENTERPRISE   // Unlimited invoices, unlimited users
+
+  @@schema("public")
+}
+
+model TenantUser {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String   // References auth.users.id (Supabase)
+  role      UserRole @default(CLIENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_members")
+  @@schema("public")
+}
+
+enum UserRole {
+  OWNER      // Full tenant access + billing management
+  ACCOUNTANT // Manage all client data, no billing
+  CLIENT     // View/manage own data only
+
+  @@schema("public")
+}
+
+model UsageRecord {
+  id           String   @id @default(cuid())
+  tenantId     String
+  period       String   // e.g., "2025-10" (YYYY-MM)
+  invoiceCount Int      @default(0)
+  storageBytes BigInt   @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, period])
+  @@map("usage_records")
+  @@schema("public")
+}
+
+// ============================================================================
+// TENANT SCHEMA - Business data with RLS isolation
+// ============================================================================
+
+model Invoice {
+  id              String        @id @default(cuid())
+  tenantId        String
+  companyId       String?       // Supplier or buyer (depends on type)
+  originalFileUrl String        // Supabase Storage URL
+  fileName        String
+  fileSize        Int           // Bytes
+  uploadedBy      String        // User ID from auth.users
+
+  status      InvoiceStatus @default(UPLOADED)
+  invoiceType InvoiceType?  // Incoming vs Outgoing
+
+  // OCR Results
+  ocrProcessedAt DateTime?
+  ocrConfidence  Float?    // 0.0 - 1.0
+  ocrResult      Json?     // Raw OCR output
+  extractedData  Json?     // Structured data from AI
+
+  // Invoice Data
+  invoiceNumber String?
+  invoiceDate   DateTime?
+  dueDate       DateTime?
+  currency      String   @default("PLN")
+
+  // Financial Totals
+  netAmount   Decimal? @db.Decimal(12, 2)
+  vatAmount   Decimal? @db.Decimal(12, 2)
+  grossAmount Decimal? @db.Decimal(12, 2)
+
+  // KSeF Integration
+  ksefNumber      String?   @unique
+  ksefSubmittedAt DateTime?
+  ksefStatus      KSeFStatus?
+
+  metadata  Json?    // Additional custom fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company        Company?          @relation(fields: [companyId], references: [id])
+  ocrJob         OCRJob?
+  ksefSubmission KSeFSubmission?
+  lineItems      InvoiceLineItem[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, invoiceDate])
+  @@index([tenantId, companyId])
+  @@index([ksefNumber])
+  @@map("invoices")
+  @@schema("tenant")
+}
+
+enum InvoiceStatus {
+  UPLOADED   // File uploaded, queued for processing
+  PROCESSING // OCR in progress
+  PROCESSED  // OCR complete, ready for review
+  REVIEWING  // Manual review in progress
+  APPROVED   // User approved, ready for KSeF
+  SUBMITTED  // Submitted to KSeF
+  COMPLETED  // KSeF accepted, UPO received
+  ERROR      // Processing or submission error
+  ARCHIVED   // Moved to archive
+
+  @@schema("tenant")
+}
+
+enum InvoiceType {
+  INCOMING // Purchase invoice (expense)
+  OUTGOING // Sales invoice (revenue)
+
+  @@schema("tenant")
+}
+
+enum KSeFStatus {
+  PENDING        // Queued for submission
+  SUBMITTING     // Submission in progress
+  ACCEPTED       // KSeF accepted
+  REJECTED       // KSeF rejected
+  UPO_DOWNLOADED // UPO confirmation downloaded
+
+  @@schema("tenant")
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  lineNumber  Int     // Order within invoice
+
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  vatRate     Decimal @db.Decimal(5, 2) // e.g., 23.00 for 23%
+  netAmount   Decimal @db.Decimal(12, 2)
+  vatAmount   Decimal @db.Decimal(12, 2)
+  grossAmount Decimal @db.Decimal(12, 2)
+
+  metadata Json? // Custom fields
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+  @@schema("tenant")
+}
+
+model Company {
+  id         String @id @default(cuid())
+  tenantId   String
+
+  nip        String // Polish tax ID (10 digits)
+  name       String
+  address    String?
+  city       String?
+  postalCode String?
+  country    String @default("PL")
+
+  // Weis API validation data
+  weisValidatedAt DateTime?
+  weisStatus      CompanyStatus @default(UNKNOWN)
+  weisData        Json?         // Full Weis API response
+
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@unique([tenantId, nip])
+  @@index([tenantId, weisStatus])
+  @@map("companies")
+  @@schema("tenant")
+}
+
+enum CompanyStatus {
+  ACTIVE    // Active taxpayer
+  INACTIVE  // Deregistered
+  SUSPENDED // Temporarily suspended
+  UNKNOWN   // Not yet validated
+
+  @@schema("tenant")
+}
+
+model OCRJob {
+  id       String @id @default(cuid())
+  invoiceId String @unique
+  tenantId String
+
+  status   OCRJobStatus @default(QUEUED)
+  progress Int          @default(0) // 0-100
+
+  // Processing steps
+  preprocessedAt DateTime?
+  ocrStartedAt   DateTime?
+  ocrCompletedAt DateTime?
+  aiStartedAt    DateTime?
+  aiCompletedAt  DateTime?
+
+  // Results
+  rawText         String? @db.Text
+  confidence      Float?
+  extractedFields Json?
+
+  // Error handling
+  errorMessage String?
+  errorDetails Json?
+  retryCount   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("ocr_jobs")
+  @@schema("tenant")
+}
+
+enum OCRJobStatus {
+  QUEUED        // Waiting for processing
+  PREPROCESSING // Image enhancement in progress
+  OCR_RUNNING   // Tesseract processing
+  AI_PROCESSING // GPT-4 extraction
+  COMPLETED     // Successfully processed
+  FAILED        // Processing failed
+  RETRYING      // Retry in progress
+
+  @@schema("tenant")
+}
+
+model KSeFSubmission {
+  id        String @id @default(cuid())
+  invoiceId String @unique
+  tenantId  String
+
+  fa3Xml String @db.Text // Generated FA(3) XML
+
+  submittedAt DateTime?
+  ksefNumber  String?   @unique // Returned by KSeF
+  upoUrl      String?   // Supabase Storage URL for UPO PDF
+
+  status KSeFSubmissionStatus @default(PENDING)
+
+  // Error handling
+  errorCode    String?
+  errorMessage String?
+  errorDetails Json?
+  retryCount   Int       @default(0)
+  nextRetryAt  DateTime?
+
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([ksefNumber])
+  @@map("ksef_submissions")
+  @@schema("tenant")
+}
+
+enum KSeFSubmissionStatus {
+  PENDING    // Queued for submission
+  SUBMITTING // API call in progress
+  SUBMITTED  // Sent, awaiting confirmation
+  ACCEPTED   // KSeF accepted
+  REJECTED   // KSeF rejected (permanent)
+  FAILED     // Network/API error (retryable)
+  RETRYING   // Retry in progress
+
+  @@schema("tenant")
+}
+
+model AuditLog {
+  id         String @id @default(cuid())
+  tenantId   String
+  userId     String // User who performed action
+
+  action     String // e.g., "invoice.upload", "invoice.approve", "ksef.submit"
+  entityType String // e.g., "Invoice", "Company"
+  entityId   String // ID of affected entity
+
+  changes Json? // Before/after values
+  metadata Json? // Additional context
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+  @@schema("tenant")
+}

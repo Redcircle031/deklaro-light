@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 255 255 255;
+  --foreground: 11 16 32;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: 11 16 32;
+  --foreground: 237 237 237;
+}
+
+body {
+  @apply bg-[rgb(var(--background))] text-[rgb(var(--foreground))] font-sans antialiased;
+}
+
+.container-responsive {
+  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+}

@@ -1,10 +1,8 @@
 import Link from 'next/link';
-import { PrismaClient } from '@prisma/client';
 import { InvoiceDetailView } from '@/components/invoices/InvoiceDetailView';
 import { cookies } from 'next/headers';
 import { TENANT_COOKIE } from '@/lib/tenant/constants';
-
-const prisma = new PrismaClient();
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -106,31 +104,85 @@ export default async function InvoiceDetailPage({ params }: Props) {
   let invoice;
 
   try {
-    // Fetch invoice from database with all related data
-    invoice = await prisma.invoice.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-      include: {
-        company: true,
-        lineItems: {
-          orderBy: { lineNumber: 'asc' },
-        },
-        ocrJob: true,
-      },
-    });
+    // Fetch invoice from Supabase with all related data
+    const supabase = await createServerSupabaseClient();
+
+    console.log('[Invoice Detail] Fetching invoice:', id, 'for tenant:', tenantId);
+
+    // Query the tenant.invoices table with joins
+    const { data: invoiceData, error: invoiceError } = await supabase
+      .from('invoices')
+      .select(`
+        *,
+        company:companies(*),
+        lineItems:invoice_line_items(*),
+        ocrJob:ocr_jobs(*)
+      `)
+      .eq('id', id)
+      .eq('tenantId', tenantId)
+      .single();
+
+    // Sort line items by lineNumber if present
+    if (invoiceData?.lineItems) {
+      invoiceData.lineItems.sort((a: any, b: any) => (a.lineNumber || 0) - (b.lineNumber || 0));
+    }
+
+    if (invoiceError) {
+      console.error('[Invoice Detail] Database error:', invoiceError);
+      throw invoiceError;
+    }
+
+    if (!invoiceData) {
+      console.error('[Invoice Detail] Invoice not found:', id);
+      // Use demo data if not found
+      invoice = getDemoInvoice(id);
+    } else {
+      console.log('[Invoice Detail] Invoice found:', {
+        id: invoiceData.id,
+        status: invoiceData.status,
+        invoiceNumber: invoiceData.invoiceNumber,
+        hasExtractedData: !!invoiceData.extractedData,
+      });
+
+      // Map Supabase data to expected format
+      invoice = {
+        id: invoiceData.id,
+        fileName: invoiceData.fileName,
+        originalFileUrl: invoiceData.originalFileUrl,
+        fileSize: invoiceData.fileSize,
+        uploadedBy: invoiceData.uploadedBy,
+        status: invoiceData.status,
+        invoiceType: invoiceData.invoiceType || 'UNKNOWN',
+        invoiceNumber: invoiceData.invoiceNumber,
+        invoiceDate: invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : null,
+        dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : null,
+        currency: invoiceData.currency,
+        netAmount: invoiceData.netAmount,
+        vatAmount: invoiceData.vatAmount,
+        grossAmount: invoiceData.grossAmount,
+        ocrProcessedAt: invoiceData.ocrProcessedAt ? new Date(invoiceData.ocrProcessedAt) : null,
+        ocrConfidence: invoiceData.ocrConfidence,
+        ksefNumber: invoiceData.ksefNumber,
+        company: invoiceData.company || null,
+        lineItems: Array.isArray(invoiceData.lineItems) ? invoiceData.lineItems : [],
+        ocrJob: invoiceData.ocrJob || null,
+        extractedData: invoiceData.extractedData,
+        createdAt: new Date(invoiceData.createdAt),
+        updatedAt: new Date(invoiceData.updatedAt),
+        tenantId: invoiceData.tenantId,
+      };
+    }
   } catch (error) {
     // Only log error in production, suppress in demo mode
     if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
-      console.error('Failed to fetch invoice:', error);
+      console.error('[Invoice Detail] Failed to fetch invoice:', error);
     }
     // Use demo data in case of database error
     invoice = getDemoInvoice(id);
   }
 
   if (!invoice) {
-    // In demo mode, return demo invoice
+    // Fallback to demo invoice
     invoice = getDemoInvoice(id);
   }
 

@@ -7,11 +7,11 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Lazy-initialize admin client for usage tracking (bypasses RLS)
 // This prevents build-time errors when env vars aren't available
-let getSupabaseAdmin(): SupabaseClient | null = null;
+let supabaseAdmin: SupabaseClient | null = null;
 
 function getSupabaseAdmin() {
-  if (!getSupabaseAdmin()) {
-    getSupabaseAdmin() = createClient(
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
@@ -22,7 +22,7 @@ function getSupabaseAdmin() {
       }
     );
   }
-  return getSupabaseAdmin();
+  return supabaseAdmin;
 }
 
 export type SubscriptionTier = 'STARTER' | 'PRO' | 'ENTERPRISE';

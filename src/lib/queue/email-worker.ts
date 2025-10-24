@@ -18,11 +18,11 @@ import type { OCRCompletedEmailData, ManualReviewEmailData } from '@/lib/email/t
 
 // Lazy-initialize admin Supabase client for background jobs (no user session)
 // This prevents build-time errors when env vars aren't available
-let getSupabaseAdmin(): SupabaseClient | null = null;
+let supabaseAdmin: SupabaseClient | null = null;
 
 function getSupabaseAdmin() {
-  if (!getSupabaseAdmin()) {
-    getSupabaseAdmin() = createClient(
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
@@ -33,7 +33,7 @@ function getSupabaseAdmin() {
       }
     );
   }
-  return getSupabaseAdmin();
+  return supabaseAdmin;
 }
 
 /**

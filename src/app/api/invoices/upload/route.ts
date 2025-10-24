@@ -232,27 +232,32 @@ export async function POST(request: NextRequest) {
 
             console.log(`[Upload] Vision extraction completed in ${elapsed}ms`);
 
-            // Update invoice with extracted data
-            await getSupabaseAdmin()
+            // Update invoice with extracted data (using correct PascalCase column names!)
+            const { error: updateError } = await getSupabaseAdmin()
               .from('invoices')
               .update({
-                invoice_number: visionResult.extracted_data.invoice_number,
-                issue_date: visionResult.extracted_data.issue_date,
-                due_date: visionResult.extracted_data.due_date,
-                net_amount: visionResult.extracted_data.net_amount,
-                vat_amount: visionResult.extracted_data.vat_amount,
-                gross_amount: visionResult.extracted_data.gross_amount,
+                invoiceNumber: visionResult.extracted_data.invoice_number,
+                invoiceDate: visionResult.extracted_data.issue_date,
+                dueDate: visionResult.extracted_data.due_date,
+                netAmount: visionResult.extracted_data.net_amount,
+                vatAmount: visionResult.extracted_data.vat_amount,
+                grossAmount: visionResult.extracted_data.gross_amount,
                 currency: visionResult.extracted_data.currency,
-                seller_nip: visionResult.extracted_data.seller.nip,
-                buyer_nip: visionResult.extracted_data.buyer.nip,
-                extracted_data: visionResult.extracted_data,
-                confidence_scores: visionResult.confidence_scores,
-                status: 'EXTRACTED',
-                processed_at: new Date().toISOString(),
+                extractedData: visionResult.extracted_data,
+                ocrConfidence: (visionResult.confidence_scores.overall || 0) / 100,
+                status: 'PROCESSED',
+                ocrProcessedAt: new Date().toISOString(),
               })
               .eq('id', invoice.id);
 
-            console.log('[Upload] Invoice updated with extracted data');
+            if (updateError) {
+              console.error('[Upload] ❌ Failed to update invoice:', updateError);
+              throw updateError;
+            }
+
+            console.log('[Upload] ✅ Invoice updated successfully with extracted data');
+            console.log('[Upload] Invoice Number:', visionResult.extracted_data.invoice_number);
+            console.log('[Upload] Gross Amount:', visionResult.extracted_data.gross_amount);
           }
         } catch (extractionError) {
           // Log detailed error information

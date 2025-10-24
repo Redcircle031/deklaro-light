@@ -1,57 +1,44 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type { RecognizeResult, Scheduler } from "tesseract.js";
-import { createScheduler, createWorker } from "tesseract.js";
+import type { RecognizeResult } from "tesseract.js";
+import { createWorker } from "tesseract.js";
 
 import { preprocessImage } from "./pipeline";
-import { OCR_CONFIG, TESSERACT_ASSETS } from "./config";
+import { OCR_CONFIG } from "./config";
 import type { OcrResult } from "./types";
 
-let schedulerPromise: Promise<Scheduler> | null = null;
-const registeredWorkers: any[] = [];
+/**
+ * Create a Tesseract worker for serverless environment
+ * Uses single worker instance (no scheduler) to avoid concurrency issues
+ */
+async function createOcrWorker() {
+  console.log('[Tesseract] Creating worker for serverless environment...');
 
-async function createOcrScheduler() {
-  // TEMPORARY: Tesseract.js doesn't work in Node.js server environment
-  // This is a stub implementation that returns mock data
-  // TODO: Replace with Google Cloud Vision API or external OCR microservice
-
-  console.log('[Tesseract] WARNING: Using stub implementation - Tesseract.js not compatible with Node.js server');
-  console.log('[Tesseract] Recommendation: Switch to Google Cloud Vision API for production');
-
-  // Create a mock scheduler that returns placeholder OCR data
-  const mockScheduler = {
-    addJob: async (type: string, image: any) => {
-      console.log('[Tesseract Stub] Mock OCR processing for image');
-
-      // Return mock OCR result
-      return {
-        data: {
-          text: 'MOCK OCR RESULT\nFaktura VAT\nNumer: FV/2024/001\nData: 2024-10-22\nKwota: 1234.56 PLN',
-          confidence: 85,
-          words: [
-            { text: 'MOCK', confidence: 85, bbox: { x0: 0, y0: 0, x1: 100, y1: 20 } },
-            { text: 'OCR', confidence: 85, bbox: { x0: 110, y0: 0, x1: 150, y1: 20 } },
-          ]
+  try {
+    const worker = await createWorker('pol', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          console.log(`[Tesseract] Progress: ${Math.round(m.progress * 100)}%`);
         }
-      };
-    },
-    terminate: async () => {
-      console.log('[Tesseract Stub] Terminating mock scheduler');
-    }
-  };
+      },
+      // Use CDN for language data in serverless
+      langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+    });
 
-  return mockScheduler as any;
-}
-
-async function getScheduler() {
-  if (!schedulerPromise) {
-    schedulerPromise = createOcrScheduler();
+    console.log('[Tesseract] Worker initialized with Polish language support');
+    return worker;
+  } catch (error) {
+    console.error('[Tesseract] Failed to create worker:', error);
+    throw new Error(`Tesseract initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-  return schedulerPromise;
 }
 
-function normaliseSource(source: string | Buffer | ArrayBuffer) {
+/**
+ * Normalize image source to Buffer
+ */
+function normaliseSource(source: string | Buffer | ArrayBuffer): Buffer {
   if (typeof source === "string") {
-    return source;
+    // Assume base64 or file path - let Tesseract handle it
+    return Buffer.from(source);
   }
 
   if (source instanceof Buffer) {
@@ -64,21 +51,17 @@ function normaliseSource(source: string | Buffer | ArrayBuffer) {
 
   return Buffer.from(source as Buffer);
 }
+
+/**
+ * Map Tesseract result to our OcrResult format
+ */
 function mapResult(result: RecognizeResult): OcrResult {
-  const { data } = result as unknown as {
-    data: RecognizeResult["data"] & {
-      words: Array<{
-        text: string;
-        confidence: number;
-        bbox: { x0: number; y0: number; x1: number; y1: number };
-      }>;
-    };
-  };
+  const { data } = result;
 
   return {
     text: data.text.trim(),
     confidence: data.confidence,
-    words: data.words.map((word) => ({
+    words: (data.words || []).map((word: any) => ({
       text: word.text,
       confidence: word.confidence,
       bbox: {
@@ -91,30 +74,57 @@ function mapResult(result: RecognizeResult): OcrResult {
     language: OCR_CONFIG.languages,
   };
 }
+
+/**
+ * Perform OCR on an invoice image
+ *
+ * @param source - Image as Buffer, ArrayBuffer, or base64 string
+ * @param options - Preprocessing options (optional)
+ * @returns OCR result with text, confidence, and word-level data
+ */
 export async function recogniseInvoice(
   source: string | Buffer | ArrayBuffer,
   options?: Parameters<typeof preprocessImage>[1],
 ): Promise<OcrResult> {
-  const scheduler = await getScheduler();
-  const preprocessed = await preprocessImage(normaliseSource(source) as Buffer, options);
-  const result = await scheduler.addJob("recognize", preprocessed.buffer);
-  return mapResult(result);
-}
+  console.log('[Tesseract] Starting OCR recognition...');
+  const startTime = Date.now();
 
-export async function terminateOcr() {
-  if (!schedulerPromise) {
-    return;
+  // Create a new worker for each request (serverless best practice)
+  const worker = await createOcrWorker();
+
+  try {
+    // Preprocess image if needed
+    const imageBuffer = normaliseSource(source);
+    const preprocessed = await preprocessImage(imageBuffer, options);
+
+    // Perform OCR
+    console.log('[Tesseract] Running text recognition...');
+    const result = await worker.recognize(preprocessed.buffer);
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[Tesseract] OCR completed in ${elapsed}ms (${result.data.text.length} chars, ${Math.round(result.data.confidence)}% confidence)`);
+
+    return mapResult(result);
+  } finally {
+    // Always terminate worker to free memory (important in serverless)
+    await worker.terminate();
   }
-
-  const scheduler = await schedulerPromise;
-  await scheduler.terminate();
-  await Promise.all(registeredWorkers.map((worker) => worker.terminate()));
-  registeredWorkers.length = 0;
-  schedulerPromise = null;
 }
 
+/**
+ * Terminate OCR (no-op in new implementation, kept for compatibility)
+ */
+export async function terminateOcr() {
+  // Workers are terminated after each use in serverless mode
+  console.log('[Tesseract] terminateOcr called (no-op in serverless mode)');
+}
+
+/**
+ * Warmup OCR (no-op in new implementation, kept for compatibility)
+ */
 export async function warmupOcr() {
-  await getScheduler();
+  // No persistent workers in serverless mode
+  console.log('[Tesseract] warmupOcr called (no-op in serverless mode)');
 }
 
 

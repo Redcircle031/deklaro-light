@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
 
           // Import AI extraction functions
           const { extractInvoiceData } = await import('@/lib/ai/extraction-service');
-          const { recogniseInvoiceWithVision } = await import('@/lib/ocr/vision');
+          const { recogniseInvoice } = await import('@/lib/ocr/tesseract');
 
           // Get signed URL for the file
           const { data: urlData } = await getSupabaseAdmin().storage
@@ -224,21 +224,26 @@ export async function POST(request: NextRequest) {
 
           if (urlData?.signedUrl) {
             // Download the file
+            console.log('[Upload] Downloading file from storage...');
             const fileResponse = await fetch(urlData.signedUrl);
             const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
 
-            // Run OCR
-            console.log('[Upload] Running OCR...');
-            const ocrResult = await recogniseInvoiceWithVision(fileBuffer);
-            console.log(`[Upload] OCR completed (${ocrResult.text.length} chars, ${ocrResult.confidence}% confidence)`);
+            // Run OCR with Tesseract.js
+            console.log('[Upload] Running Tesseract OCR (Polish language)...');
+            const ocrResult = await recogniseInvoice(fileBuffer);
+            console.log(`[Upload] OCR completed (${ocrResult.text.length} chars, ${Math.round(ocrResult.confidence)}% confidence)`);
 
             // Extract data with AI
-            console.log('[Upload] Running AI extraction...');
+            console.log('[Upload] Running OpenAI GPT-4 extraction...');
             const aiResult = await extractInvoiceData(ocrResult.text);
-            console.log('[Upload] AI extraction completed');
+            console.log('[Upload] AI extraction completed:', {
+              invoice_number: aiResult.extracted_data.invoice_number,
+              gross_amount: aiResult.extracted_data.gross_amount,
+              confidence: aiResult.confidence_scores.overall,
+            });
 
             // Update invoice with extracted data
-            await getSupabaseAdmin()
+            const updateResult = await getSupabaseAdmin()
               .from('invoices')
               .update({
                 invoice_number: aiResult.extracted_data.invoice_number,
@@ -259,11 +264,16 @@ export async function POST(request: NextRequest) {
               })
               .eq('id', invoice.id);
 
-            console.log('[Upload] Invoice updated with extracted data');
+            if (updateResult.error) {
+              console.error('[Upload] Failed to update invoice:', updateResult.error);
+            } else {
+              console.log('[Upload] Invoice updated with extracted data successfully');
+            }
           }
         } catch (extractionError) {
           // Log extraction error but don't fail the upload
           console.error('[Upload] AI extraction failed:', extractionError);
+          console.error('[Upload] Error details:', extractionError instanceof Error ? extractionError.stack : extractionError);
           console.log('[Upload] Invoice uploaded successfully but extraction failed');
         }
 

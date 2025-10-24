@@ -4,19 +4,27 @@
  * REWRITTEN to use Supabase instead of Prisma
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Create admin Supabase client for audit logging (bypasses RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+// Lazy-initialize admin Supabase client for audit logging (bypasses RLS)
+// This prevents build-time errors when env vars aren't available
+let supabaseAdmin: SupabaseClient | null = null;
+
+function getSupabaseAdmin() {
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
   }
-);
+  return supabaseAdmin;
+}
 
 export type AuditAction =
   | 'CREATE'
@@ -68,7 +76,7 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     const now = new Date().toISOString();
 
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from('audit_logs')
       .insert({
         id: crypto.randomUUID(),
@@ -93,7 +101,7 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
  * Get audit logs with filtering
  */
 export async function getAuditLogs(filter: AuditLogFilter) {
-  let query = supabaseAdmin
+  let query = getSupabaseAdmin()
     .from('audit_logs')
     .select('*', { count: 'exact' })
     .eq('tenant_id', filter.tenantId)

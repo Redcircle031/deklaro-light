@@ -13,18 +13,27 @@ import { recogniseInvoiceWithVision } from '@/lib/ocr/vision';
 import { extractInvoiceData, validateExtractedData, calculateOverallConfidence } from '@/lib/ai/extraction-service';
 import type { ExtractedData, ConfidenceScores } from '@/lib/ai/schemas/invoice-schema';
 import { NonRetriableError } from 'inngest';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-// Create admin Supabase client for background jobs (no user session)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+// Lazy-initialize admin Supabase client for background jobs (no user session)
+// This prevents build-time errors when env vars aren't available
+let getSupabaseAdmin(): SupabaseClient | null = null;
+
+function getSupabaseAdmin() {
+  if (!getSupabaseAdmin()) {
+    getSupabaseAdmin() = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
   }
-);
+  return getSupabaseAdmin();
+}
 
 type ProcessingStep = 'OCR' | 'AI_EXTRACT' | 'VALIDATE' | 'SAVE';
 
@@ -46,7 +55,7 @@ export const processInvoiceOCR = inngest.createFunction(
 
     // Step 1: Fetch invoice and create OCR job
     const { job_id, file_url, has_client_ocr, client_ocr_text, client_ocr_confidence } = await step.run('initialize-job', async () => {
-      const supabase = supabaseAdmin;
+      const supabase = getSupabaseAdmin();
 
       // Fetch invoice (include OCR fields to check if client-side OCR was done)
       const { data: invoice, error: invoiceError } = await supabase
@@ -218,7 +227,7 @@ export const processInvoiceOCR = inngest.createFunction(
 
         await createProcessingLog(job_id, tenant_id, 'SAVE', 'STARTED', null);
 
-        const supabase = supabaseAdmin;
+        const supabase = getSupabaseAdmin();
         const overall_confidence = calculateOverallConfidence(confidence_scores);
 
         // Update invoice with extracted data
@@ -284,7 +293,7 @@ export const processInvoiceOCR = inngest.createFunction(
         });
 
         // Mark job as failed
-        const supabase = supabaseAdmin;
+        const supabase = getSupabaseAdmin();
         await supabase
           .from('ocr_jobs')
           .update({
@@ -312,7 +321,7 @@ async function createProcessingLog(
   status: 'STARTED' | 'COMPLETED' | 'FAILED',
   metadata: Record<string, unknown> | null
 ) {
-  const supabase = supabaseAdmin;
+  const supabase = getSupabaseAdmin();
 
   await supabase.from('processing_logs').insert({
     job_id,

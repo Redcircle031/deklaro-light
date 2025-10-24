@@ -16,17 +16,25 @@ const ALLOWED_FILE_TYPES = [
 ];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Create admin Supabase client for storage uploads (bypasses RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+// Lazy-initialize admin Supabase client for storage uploads (bypasses RLS)
+// This prevents build-time errors when env vars aren't available
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseAdmin() {
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
   }
-);
+  return supabaseAdmin;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -137,7 +145,7 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(arrayBuffer);
 
       // Upload to Supabase Storage using admin client (bypasses RLS)
-      const { data, error } = await supabaseAdmin.storage
+      const { data, error } = await getSupabaseAdmin().storage
         .from("invoices")
         .upload(storageFileName, buffer, {
           contentType: file.type,
@@ -183,7 +191,7 @@ export async function POST(request: NextRequest) {
           invoiceData.ocr_processed_at = now;
         }
 
-        const { data: invoice, error: dbError} = await supabaseAdmin
+        const { data: invoice, error: dbError} = await getSupabaseAdmin()
           .from("invoices")
           .insert(invoiceData)
           .select()
@@ -210,7 +218,7 @@ export async function POST(request: NextRequest) {
           const { recogniseInvoiceWithVision } = await import('@/lib/ocr/vision');
 
           // Get signed URL for the file
-          const { data: urlData } = await supabaseAdmin.storage
+          const { data: urlData } = await getSupabaseAdmin().storage
             .from('invoices')
             .createSignedUrl(data.path, 3600);
 
@@ -230,7 +238,7 @@ export async function POST(request: NextRequest) {
             console.log('[Upload] AI extraction completed');
 
             // Update invoice with extracted data
-            await supabaseAdmin
+            await getSupabaseAdmin()
               .from('invoices')
               .update({
                 invoice_number: aiResult.extracted_data.invoice_number,

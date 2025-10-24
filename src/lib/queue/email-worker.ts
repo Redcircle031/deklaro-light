@@ -8,7 +8,7 @@
  */
 
 import { inngest } from './inngest-client';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   sendOCRCompletedNotification,
   sendManualReviewNotification,
@@ -16,23 +16,31 @@ import {
 } from '@/lib/email/notifications';
 import type { OCRCompletedEmailData, ManualReviewEmailData } from '@/lib/email/templates';
 
-// Create admin Supabase client for background jobs (no user session)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+// Lazy-initialize admin Supabase client for background jobs (no user session)
+// This prevents build-time errors when env vars aren't available
+let getSupabaseAdmin(): SupabaseClient | null = null;
+
+function getSupabaseAdmin() {
+  if (!getSupabaseAdmin()) {
+    getSupabaseAdmin() = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
   }
-);
+  return getSupabaseAdmin();
+}
 
 /**
  * Fetch all admin/owner users for a tenant
  */
 async function getTenantAdmins(tenantId: string): Promise<Array<{ email: string; preferences?: NotificationPreferences }>> {
-  const supabase = supabaseAdmin;
+  const supabase = getSupabaseAdmin();
 
   // Fetch tenant members with OWNER or ADMIN role
   const { data: members, error } = await supabase
@@ -76,7 +84,7 @@ export const notifyOCRCompleted = inngest.createFunction(
 
     // Fetch invoice and tenant data
     const { invoice, tenant, admins } = await step.run('fetch-data', async () => {
-      const supabase = supabaseAdmin;
+      const supabase = getSupabaseAdmin();
 
       // Fetch invoice details
       const { data: invoiceData, error: invoiceError } = await supabase

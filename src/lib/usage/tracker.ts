@@ -3,19 +3,27 @@
  * Tracks invoice counts per tenant and enforces subscription limits
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Create admin client for usage tracking (bypasses RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+// Lazy-initialize admin client for usage tracking (bypasses RLS)
+// This prevents build-time errors when env vars aren't available
+let getSupabaseAdmin(): SupabaseClient | null = null;
+
+function getSupabaseAdmin() {
+  if (!getSupabaseAdmin()) {
+    getSupabaseAdmin() = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
   }
-);
+  return getSupabaseAdmin();
+}
 
 export type SubscriptionTier = 'STARTER' | 'PRO' | 'ENTERPRISE';
 
@@ -51,7 +59,7 @@ export async function getOrCreateUsageRecord(tenantId: string) {
   const period = getCurrentPeriod();
 
   // Try to get existing record
-  const { data: existing, error: fetchError } = await supabaseAdmin
+  const { data: existing, error: fetchError } = await getSupabaseAdmin()
     .from('usage_records')
     .select('*')
     .eq('tenant_id', tenantId)
@@ -64,7 +72,7 @@ export async function getOrCreateUsageRecord(tenantId: string) {
 
   // Create new usage record for this period
   const now = new Date().toISOString();
-  const { data: newRecord, error: createError } = await supabaseAdmin
+  const { data: newRecord, error: createError } = await getSupabaseAdmin()
     .from('usage_records')
     .insert({
       id: crypto.randomUUID(),
@@ -92,16 +100,16 @@ export async function incrementInvoiceCount(tenantId: string): Promise<void> {
   const period = getCurrentPeriod();
 
   // Try to increment existing record
-  const { error: updateError } = await supabaseAdmin
+  const { error: updateError } = await getSupabaseAdmin()
     .from('usage_records')
-    .update({ invoice_count: supabaseAdmin.rpc('increment', { x: 1 }) })
+    .update({ invoice_count: getSupabaseAdmin().rpc('increment', { x: 1 }) })
     .eq('tenant_id', tenantId)
     .eq('period', period);
 
   // If no rows updated, create new record
   if (updateError) {
     const now = new Date().toISOString();
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from('usage_records')
       .insert({
         id: crypto.randomUUID(),
@@ -128,7 +136,7 @@ export async function incrementStorageUsage(
   const existing = await getOrCreateUsageRecord(tenantId);
 
   // Update storage bytes
-  await supabaseAdmin
+  await getSupabaseAdmin()
     .from('usage_records')
     .update({ storage_bytes: (existing.storage_bytes || 0) + bytes })
     .eq('tenant_id', tenantId)
@@ -142,7 +150,7 @@ export async function checkInvoiceLimit(
   tenantId: string
 ): Promise<{ allowed: boolean; current: number; limit: number }> {
   // Get tenant subscription tier
-  const { data: tenant, error } = await supabaseAdmin
+  const { data: tenant, error } = await getSupabaseAdmin()
     .from('tenants')
     .select('subscription')
     .eq('id', tenantId)
@@ -173,7 +181,7 @@ export async function checkUserLimit(
   tenantId: string
 ): Promise<{ allowed: boolean; current: number; limit: number }> {
   // Get tenant subscription tier
-  const { data: tenant, error: tenantError } = await supabaseAdmin
+  const { data: tenant, error: tenantError } = await getSupabaseAdmin()
     .from('tenants')
     .select('subscription')
     .eq('id', tenantId)
@@ -184,7 +192,7 @@ export async function checkUserLimit(
   }
 
   // Count tenant members
-  const { count, error: countError } = await supabaseAdmin
+  const { count, error: countError } = await getSupabaseAdmin()
     .from('tenant_members')
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId);
@@ -209,7 +217,7 @@ export async function checkUserLimit(
  */
 export async function getUsageStats(tenantId: string) {
   // Get tenant info
-  const { data: tenant, error: tenantError } = await supabaseAdmin
+  const { data: tenant, error: tenantError } = await getSupabaseAdmin()
     .from('tenants')
     .select('subscription')
     .eq('id', tenantId)
@@ -220,7 +228,7 @@ export async function getUsageStats(tenantId: string) {
   }
 
   // Count users
-  const { count: userCount } = await supabaseAdmin
+  const { count: userCount } = await getSupabaseAdmin()
     .from('tenant_members')
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId);

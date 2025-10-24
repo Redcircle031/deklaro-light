@@ -17,7 +17,7 @@ const TEST_EMAIL = 'test@deklaro.com';
 const TEST_PASSWORD = 'Test123456789';
 
 // Use production URL
-const BASE_URL = process.env.BASE_URL || 'https://deklaro-76v777vjw-roberto-gonzalezs-projects-d1b15432.vercel.app';
+const BASE_URL = process.env.BASE_URL || 'https://deklaro-j07w0pte3-roberto-gonzalezs-projects-d1b15432.vercel.app';
 
 test.describe('Invoice Upload and Extraction Flow', () => {
   test('should upload invoice and extract data with GPT-4o Vision', async ({ page }) => {

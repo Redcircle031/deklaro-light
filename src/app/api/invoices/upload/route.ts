@@ -255,8 +255,12 @@ export async function POST(request: NextRequest) {
             console.log('[Upload] Invoice updated with extracted data');
           }
         } catch (extractionError) {
-          // Log but don't fail upload
-          console.error('[Upload] Vision extraction failed:', extractionError);
+          // Log detailed error information
+          console.error('[Upload] ❌ Vision extraction FAILED - Details:');
+          console.error('[Upload] Error message:', extractionError instanceof Error ? extractionError.message : extractionError);
+          console.error('[Upload] Error stack:', extractionError instanceof Error ? extractionError.stack : 'No stack');
+          console.error('[Upload] Error type:', typeof extractionError);
+          console.error('[Upload] Full error object:', JSON.stringify(extractionError, null, 2));
 
           // Try Inngest as fallback
           await inngest.send({

@@ -130,7 +130,7 @@ async function getCompanies(tenantId: string) {
       },
     });
 
-    return companies.map((company) => {
+    return companies.map((company: typeof companies[0]) => {
       const totalSpent = 0; // Would need aggregation query
       const lastInvoice = company.invoices[0];
 

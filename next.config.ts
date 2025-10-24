@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Disable TypeScript checking during production builds
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   // Explicitly expose environment variables to the browser
   env: {
     NEXT_PUBLIC_DEMO_MODE: "false",

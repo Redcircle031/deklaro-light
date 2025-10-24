@@ -75,9 +75,9 @@ export async function extractInvoiceWithVision(
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    // Call GPT-4 Vision with JSON mode
+    // Call GPT-4o (has vision capabilities built-in)
     const response = await openai.chat.completions.create({
-      model: 'gpt-4-vision-preview',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'user',

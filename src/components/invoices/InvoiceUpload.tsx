@@ -123,6 +123,9 @@ export function InvoiceUpload() {
             i === index ? { ...f, status: 'complete' as const, progress: 100 } : f,
           ),
         );
+
+        // Refresh the page to show the new invoice in the list
+        router.refresh();
       }, 2000);
     } catch (error) {
       // Don't show error if upload was cancelled

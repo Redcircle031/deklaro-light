@@ -200,7 +200,66 @@ export async function POST(request: NextRequest) {
 
         console.log('[Upload] Invoice created successfully:', invoice.id);
 
-        // Trigger OCR processing via Inngest event
+        // Process invoice with AI extraction immediately (synchronous for testing)
+        // In production with Inngest, this would be done asynchronously
+        try {
+          console.log('[Upload] Starting immediate AI extraction...');
+
+          // Import AI extraction functions
+          const { extractInvoiceData } = await import('@/lib/ai/extraction-service');
+          const { recogniseInvoiceWithVision } = await import('@/lib/ocr/vision');
+
+          // Get signed URL for the file
+          const { data: urlData } = await supabaseAdmin.storage
+            .from('invoices')
+            .createSignedUrl(data.path, 3600);
+
+          if (urlData?.signedUrl) {
+            // Download the file
+            const fileResponse = await fetch(urlData.signedUrl);
+            const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+
+            // Run OCR
+            console.log('[Upload] Running OCR...');
+            const ocrResult = await recogniseInvoiceWithVision(fileBuffer);
+            console.log(`[Upload] OCR completed (${ocrResult.text.length} chars, ${ocrResult.confidence}% confidence)`);
+
+            // Extract data with AI
+            console.log('[Upload] Running AI extraction...');
+            const aiResult = await extractInvoiceData(ocrResult.text);
+            console.log('[Upload] AI extraction completed');
+
+            // Update invoice with extracted data
+            await supabaseAdmin
+              .from('invoices')
+              .update({
+                invoice_number: aiResult.extracted_data.invoice_number,
+                issue_date: aiResult.extracted_data.issue_date,
+                due_date: aiResult.extracted_data.due_date,
+                net_amount: aiResult.extracted_data.net_amount,
+                vat_amount: aiResult.extracted_data.vat_amount,
+                gross_amount: aiResult.extracted_data.gross_amount,
+                currency: aiResult.extracted_data.currency,
+                seller_nip: aiResult.extracted_data.seller.nip,
+                buyer_nip: aiResult.extracted_data.buyer.nip,
+                extracted_data: aiResult.extracted_data,
+                confidence_scores: aiResult.confidence_scores,
+                raw_ocr_text: ocrResult.text,
+                ocr_confidence: ocrResult.confidence,
+                status: 'EXTRACTED',
+                processed_at: new Date().toISOString(),
+              })
+              .eq('id', invoice.id);
+
+            console.log('[Upload] Invoice updated with extracted data');
+          }
+        } catch (extractionError) {
+          // Log extraction error but don't fail the upload
+          console.error('[Upload] AI extraction failed:', extractionError);
+          console.log('[Upload] Invoice uploaded successfully but extraction failed');
+        }
+
+        // Also trigger Inngest event for async processing (if configured)
         await inngest.send({
           name: 'invoice/uploaded',
           data: {

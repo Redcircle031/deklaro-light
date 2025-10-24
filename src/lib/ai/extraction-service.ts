@@ -7,7 +7,7 @@
  * @see specs/002-ocr-pipeline/contracts/job-status.yaml
  */
 
-import openai, { AI_CONFIG } from './openai-client';
+import { getOpenAIClient, AI_CONFIG } from './openai-client';
 import {
   INVOICE_EXTRACTION_SYSTEM_PROMPT,
   generateExtractionPrompt,
@@ -33,6 +33,9 @@ export async function extractInvoiceData(
 
   try {
     console.log('[AI Extraction] Starting GPT-4 extraction...');
+
+    // Get OpenAI client (lazy initialization)
+    const openai = getOpenAIClient();
 
     // Call OpenAI GPT-4 with JSON mode
     const completion = await openai.chat.completions.create({

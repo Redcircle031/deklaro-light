@@ -9,12 +9,22 @@
 
 import OpenAI from 'openai';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-initialize OpenAI client to avoid build-time errors
+let openaiClient: OpenAI | null = null;
 
-export default openai;
+export function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is required for AI extraction');
+    }
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
+}
+
+// Export for backward compatibility
+export default { get: getOpenAIClient };
 
 /**
  * OpenAI configuration from environment variables

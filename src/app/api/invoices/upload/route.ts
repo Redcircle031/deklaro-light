@@ -208,18 +208,68 @@ export async function POST(request: NextRequest) {
 
         console.log('[Upload] Invoice created successfully:', invoice.id);
 
-        // Trigger Inngest event for async OCR/AI processing
-        // This prevents serverless timeout (Tesseract.js takes 30-60s+)
-        await inngest.send({
-          name: 'invoice/uploaded',
-          data: {
-            invoice_id: invoice.id,
-            tenant_id: tenantId,
-            file_path: data.path,
-          },
-        }).catch((err) => {
-          console.error(`Failed to trigger OCR for invoice ${invoice.id}:`, err);
-        });
+        // Process with GPT-4 Vision immediately (fast: 5-15s)
+        try {
+          console.log('[Upload] Starting GPT-4 Vision extraction...');
+          const startTime = Date.now();
+
+          // Import Vision extraction
+          const { extractInvoiceWithVision } = await import('@/lib/ai/vision-extraction');
+
+          // Get file from storage
+          const { data: urlData } = await getSupabaseAdmin().storage
+            .from('invoices')
+            .createSignedUrl(data.path, 3600);
+
+          if (urlData?.signedUrl) {
+            // Download file
+            const fileResponse = await fetch(urlData.signedUrl);
+            const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+
+            // Run Vision extraction (OCR + AI in one call)
+            const visionResult = await extractInvoiceWithVision(fileBuffer);
+            const elapsed = Date.now() - startTime;
+
+            console.log(`[Upload] Vision extraction completed in ${elapsed}ms`);
+
+            // Update invoice with extracted data
+            await getSupabaseAdmin()
+              .from('invoices')
+              .update({
+                invoice_number: visionResult.extracted_data.invoice_number,
+                issue_date: visionResult.extracted_data.issue_date,
+                due_date: visionResult.extracted_data.due_date,
+                net_amount: visionResult.extracted_data.net_amount,
+                vat_amount: visionResult.extracted_data.vat_amount,
+                gross_amount: visionResult.extracted_data.gross_amount,
+                currency: visionResult.extracted_data.currency,
+                seller_nip: visionResult.extracted_data.seller.nip,
+                buyer_nip: visionResult.extracted_data.buyer.nip,
+                extracted_data: visionResult.extracted_data,
+                confidence_scores: visionResult.confidence_scores,
+                status: 'EXTRACTED',
+                processed_at: new Date().toISOString(),
+              })
+              .eq('id', invoice.id);
+
+            console.log('[Upload] Invoice updated with extracted data');
+          }
+        } catch (extractionError) {
+          // Log but don't fail upload
+          console.error('[Upload] Vision extraction failed:', extractionError);
+
+          // Try Inngest as fallback
+          await inngest.send({
+            name: 'invoice/uploaded',
+            data: {
+              invoice_id: invoice.id,
+              tenant_id: tenantId,
+              file_path: data.path,
+            },
+          }).catch((err) => {
+            console.error(`Failed to trigger OCR for invoice ${invoice.id}:`, err);
+          });
+        }
 
         // Increment usage counters
         await Promise.all([

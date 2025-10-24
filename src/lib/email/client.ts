@@ -5,8 +5,19 @@
 
 import { Resend } from 'resend';
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy-initialize Resend client to avoid build-time errors
+let resendClient: Resend | null = null;
+
+function getResendClient(): Resend {
+  if (!resendClient) {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error('RESEND_API_KEY environment variable is required for email service');
+    }
+    resendClient = new Resend(apiKey);
+  }
+  return resendClient;
+}
 
 export interface EmailOptions {
   to: string | string[];
@@ -87,7 +98,8 @@ class EmailService {
         };
       }
 
-      // Send email via Resend
+      // Send email via Resend (lazy-initialized)
+      const resend = getResendClient();
       const response = await resend.emails.send({
         from: options.from || this.defaultFrom,
         to: options.to,

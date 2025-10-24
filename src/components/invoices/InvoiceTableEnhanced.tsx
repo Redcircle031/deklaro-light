@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Search,
   ChevronDown,
@@ -52,6 +53,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function InvoiceTableEnhanced({ initialInvoices }: InvoiceTableEnhancedProps) {
+  const router = useRouter();
+  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -61,9 +65,43 @@ export function InvoiceTableEnhanced({ initialInvoices }: InvoiceTableEnhancedPr
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
 
+  // Real-time AJAX refresh of invoice data
+  useEffect(() => {
+    const refreshInvoices = async () => {
+      try {
+        setIsRefreshing(true);
+        const response = await fetch('/api/invoices/list', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setInvoices(data.invoices || []);
+          console.log('[Invoice List] Refreshed:', data.invoices?.length || 0, 'invoices');
+        }
+      } catch (error) {
+        console.error('[Invoice List] Failed to refresh:', error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    };
+
+    // Initial refresh after 2 seconds
+    const initialTimer = setTimeout(refreshInvoices, 2000);
+
+    // Then refresh every 5 seconds
+    const interval = setInterval(refreshInvoices, 5000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Filter and sort logic
   const filteredAndSortedInvoices = useMemo(() => {
-    let filtered = initialInvoices.filter((invoice) => {
+    let filtered = invoices.filter((invoice) => {
       // Search filter
       const searchLower = searchQuery.toLowerCase();
       const matchesSearch =
@@ -121,7 +159,7 @@ export function InvoiceTableEnhanced({ initialInvoices }: InvoiceTableEnhancedPr
     });
 
     return filtered;
-  }, [initialInvoices, searchQuery, statusFilter, typeFilter, sortField, sortOrder]);
+  }, [invoices, searchQuery, statusFilter, typeFilter, sortField, sortOrder]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedInvoices.length / itemsPerPage);
@@ -264,8 +302,16 @@ export function InvoiceTableEnhanced({ initialInvoices }: InvoiceTableEnhancedPr
       )}
 
       {/* Results Count */}
-      <div className="text-sm text-slate-600">
-        Showing {filteredAndSortedInvoices.length} of {initialInvoices.length} invoices
+      <div className="flex items-center gap-3">
+        <div className="text-sm text-slate-600">
+          Showing {filteredAndSortedInvoices.length} of {invoices.length} invoices
+        </div>
+        {isRefreshing && (
+          <div className="flex items-center gap-2 text-xs text-blue-600">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            Refreshing...
+          </div>
+        )}
       </div>
 
       {/* Table */}

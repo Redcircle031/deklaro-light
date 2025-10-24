@@ -199,13 +199,13 @@ export default async function CompaniesPage() {
         <div className="rounded-lg border bg-card p-4">
           <div className="text-sm font-medium text-gray-600 dark:text-gray-400">VAT Registered</div>
           <div className="text-2xl font-bold mt-1">
-            {companies.filter((c) => c.vatRegistered).length}
+            {companies.filter((c: typeof companies[0]) => c.vatRegistered).length}
           </div>
         </div>
         <div className="rounded-lg border bg-card p-4">
           <div className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Invoices</div>
           <div className="text-2xl font-bold mt-1">
-            {companies.reduce((sum, c) => sum + c.invoiceCount, 0)}
+            {companies.reduce((sum: number, c: typeof companies[0]) => sum + c.invoiceCount, 0)}
           </div>
         </div>
         <div className="rounded-lg border bg-card p-4">

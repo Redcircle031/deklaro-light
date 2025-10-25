@@ -68,12 +68,27 @@ export async function extractInvoiceWithVision(
 
   try {
     console.log('[Vision Extraction] Starting GPT-4 Vision analysis...');
+    console.log('[Vision Extraction] Buffer size:', imageBuffer.length, 'bytes');
 
     const openai = getOpenAIClient();
 
     // Convert buffer to base64
     const base64Image = imageBuffer.toString('base64');
-    const dataUrl = `data:image/jpeg;base64,${base64Image}`;
+
+    // Detect file type from buffer header
+    let mimeType = 'image/jpeg';
+    if (imageBuffer[0] === 0x25 && imageBuffer[1] === 0x50 && imageBuffer[2] === 0x44 && imageBuffer[3] === 0x46) {
+      mimeType = 'application/pdf';
+      console.log('[Vision Extraction] Detected PDF file');
+    } else if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50 && imageBuffer[2] === 0x4E && imageBuffer[3] === 0x47) {
+      mimeType = 'image/png';
+      console.log('[Vision Extraction] Detected PNG file');
+    } else {
+      console.log('[Vision Extraction] Detected JPEG file (or unknown, defaulting to JPEG)');
+    }
+
+    const dataUrl = `data:${mimeType};base64,${base64Image}`;
+    console.log('[Vision Extraction] Data URL created with mime type:', mimeType);
 
     // Call GPT-4o (has vision capabilities built-in)
     const response = await openai.chat.completions.create({

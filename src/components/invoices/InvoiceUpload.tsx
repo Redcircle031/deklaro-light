@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { convertPdfToImage } from '@/lib/pdf/convert-to-image';
 
 type UploadedFile = {
   file: File;
@@ -56,7 +57,7 @@ export function InvoiceUpload() {
     return null;
   };
 
-  const addFiles = (newFiles: File[]) => {
+  const addFiles = async (newFiles: File[]) => {
     // Check total file limit
     const remainingSlots = MAX_FILES - files.length;
     if (remainingSlots <= 0) {
@@ -70,16 +71,38 @@ export function InvoiceUpload() {
       alert(`Only adding ${remainingSlots} files. Maximum ${MAX_FILES} files allowed.`);
     }
 
-    const uploadedFiles: UploadedFile[] = filesToAdd.map((file) => {
-      const error = validateFile(file);
-      return {
-        file,
-        preview: file.type.startsWith('image/') && !error ? URL.createObjectURL(file) : undefined,
-        status: error ? 'error' as const : 'pending' as const,
-        progress: 0,
-        error: error || undefined,
-      };
-    });
+    // Convert PDFs to images and create uploaded file objects
+    const uploadedFiles: UploadedFile[] = await Promise.all(
+      filesToAdd.map(async (originalFile) => {
+        const error = validateFile(originalFile);
+
+        // If file is PDF and no validation error, convert to image
+        let fileToUpload = originalFile;
+        if (originalFile.type === 'application/pdf' && !error) {
+          try {
+            console.log(`📄 Converting PDF to image: ${originalFile.name}`);
+            fileToUpload = await convertPdfToImage(originalFile);
+          } catch (convertError) {
+            console.error('PDF conversion failed:', convertError);
+            return {
+              file: originalFile,
+              preview: undefined,
+              status: 'error' as const,
+              progress: 0,
+              error: `PDF conversion failed: ${convertError instanceof Error ? convertError.message : 'Unknown error'}`,
+            };
+          }
+        }
+
+        return {
+          file: fileToUpload,
+          preview: fileToUpload.type.startsWith('image/') && !error ? URL.createObjectURL(fileToUpload) : undefined,
+          status: error ? 'error' as const : 'pending' as const,
+          progress: 0,
+          error: error || undefined,
+        };
+      })
+    );
 
     setFiles((prev) => [...prev, ...uploadedFiles]);
   };

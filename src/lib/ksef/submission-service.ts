@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import { createKSeFClient } from './client';
 import { convertToFA3Xml, validateFA3Xml } from './fa3-converter';
+import { loadKSeFConfig } from './config';
 import type { FA3Invoice } from './types';
 
 const prisma = new PrismaClient();
@@ -73,7 +74,8 @@ export async function submitInvoiceToKSeF(
     });
 
     // Submit to KSeF
-    const ksefClient = createKSeFClient('test', tenantNip);
+    const ksefConfig = loadKSeFConfig(tenantNip);
+    const ksefClient = createKSeFClient(ksefConfig);
     const result = await ksefClient.submitInvoice(fa3Xml);
 
     if (result.success && result.ksefNumber) {
@@ -144,7 +146,8 @@ export async function downloadUPODocument(
       throw new Error('Invoice not submitted to KSeF');
     }
 
-    const ksefClient = createKSeFClient('test', tenantNip);
+    const ksefConfig = loadKSeFConfig(tenantNip);
+    const ksefClient = createKSeFClient(ksefConfig);
     const upo = await ksefClient.downloadUPO(submission.ksefNumber);
 
     // Update submission with UPO URL

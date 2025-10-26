@@ -6,6 +6,11 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAuditLog, getClientIp, getUserAgent } from "@/lib/audit/logger";
 import { checkInvoiceLimit, incrementInvoiceCount, incrementStorageUsage } from "@/lib/usage/tracker";
 import { inngest } from "@/lib/queue/inngest-client";
+import { convertPdfToPng } from "@/lib/pdf/server-convert";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const ALLOWED_FILE_TYPES = [
   "image/jpeg",
@@ -136,19 +141,41 @@ export async function POST(request: NextRequest) {
     const uploadResults = [];
 
     for (const file of files) {
-      const fileExt = file.name.split(".").pop();
       const timestamp = Date.now();
-      const storageFileName = `${tenantId}/${timestamp}-${crypto.randomUUID()}.${fileExt}`;
 
       // Convert File to ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      let buffer = Buffer.from(arrayBuffer);
+      let contentType = file.type;
+      let fileExt = file.name.split(".").pop();
+      let originalFileName = file.name;
+
+      // Convert PDF to PNG for OpenAI Vision API compatibility
+      if (file.type === 'application/pdf') {
+        try {
+          console.log(`[Upload] Converting PDF to PNG: ${file.name}`);
+          buffer = await convertPdfToPng(buffer);
+          contentType = 'image/png';
+          fileExt = 'png';
+          console.log(`[Upload] PDF converted successfully: ${originalFileName} -> ${fileExt}`);
+        } catch (convertError) {
+          console.error('[Upload] PDF conversion failed:', convertError);
+          uploadResults.push({
+            fileName: file.name,
+            success: false,
+            error: `PDF conversion failed: ${convertError instanceof Error ? convertError.message : 'Unknown error'}`,
+          });
+          continue;
+        }
+      }
+
+      const storageFileName = `${tenantId}/${timestamp}-${crypto.randomUUID()}.${fileExt}`;
 
       // Upload to Supabase Storage using admin client (bypasses RLS)
       const { data, error } = await getSupabaseAdmin().storage
         .from("invoices")
         .upload(storageFileName, buffer, {
-          contentType: file.type,
+          contentType,
           upsert: false,
         });
 
@@ -175,8 +202,8 @@ export async function POST(request: NextRequest) {
           id: invoiceId,
           tenant_id: tenantId,
           original_file_url: data.path,
-          file_name: file.name,
-          file_size: file.size,
+          file_name: originalFileName, // Keep original PDF filename
+          file_size: buffer.length, // Use converted buffer size
           uploaded_by: user.id,
           status: ocrText ? "UPLOADED_WITH_OCR" : "UPLOADED", // Mark if OCR already done
           currency: "PLN",
@@ -232,21 +259,27 @@ export async function POST(request: NextRequest) {
 
             console.log(`[Upload] Vision extraction completed in ${elapsed}ms`);
 
-            // Update invoice with extracted data (using correct PascalCase column names!)
+            const extraction = visionResult.extracted_data;
+            const confidenceScores = visionResult.confidence_scores || {};
+            const normalizeDateField = (value?: string | null) =>
+              value ? `${value}T00:00:00.000Z` : null;
+
+            // Update invoice with extracted data (using tenant.* snake_case columns)
             const { error: updateError } = await getSupabaseAdmin()
               .from('invoices')
               .update({
-                invoiceNumber: visionResult.extracted_data.invoice_number,
-                invoiceDate: visionResult.extracted_data.issue_date,
-                dueDate: visionResult.extracted_data.due_date,
-                netAmount: visionResult.extracted_data.net_amount,
-                vatAmount: visionResult.extracted_data.vat_amount,
-                grossAmount: visionResult.extracted_data.gross_amount,
-                currency: visionResult.extracted_data.currency,
-                extractedData: visionResult.extracted_data,
-                ocrConfidence: (visionResult.confidence_scores.overall || 0) / 100,
+                invoice_number: extraction.invoice_number ?? null,
+                invoice_date: normalizeDateField(extraction.issue_date),
+                due_date: normalizeDateField(extraction.due_date),
+                net_amount: extraction.net_amount ?? null,
+                vat_amount: extraction.vat_amount ?? null,
+                gross_amount: extraction.gross_amount ?? null,
+                currency: extraction.currency ?? 'PLN',
+                extracted_data: extraction,
+                confidence_scores: confidenceScores,
+                ocr_confidence_overall: Math.round(confidenceScores.overall ?? 0),
                 status: 'PROCESSED',
-                ocrProcessedAt: new Date().toISOString(),
+                ocr_processed_at: new Date().toISOString(),
               })
               .eq('id', invoice.id);
 
@@ -256,8 +289,8 @@ export async function POST(request: NextRequest) {
             }
 
             console.log('[Upload] ✅ Invoice updated successfully with extracted data');
-            console.log('[Upload] Invoice Number:', visionResult.extracted_data.invoice_number);
-            console.log('[Upload] Gross Amount:', visionResult.extracted_data.gross_amount);
+            console.log('[Upload] Invoice Number:', extraction.invoice_number);
+            console.log('[Upload] Gross Amount:', extraction.gross_amount);
           }
         } catch (extractionError) {
           // Log detailed error information

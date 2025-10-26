@@ -7,6 +7,8 @@ import { createAuditLog, getClientIp, getUserAgent } from "@/lib/audit/logger";
 import { checkInvoiceLimit, incrementInvoiceCount, incrementStorageUsage } from "@/lib/usage/tracker";
 import { inngest } from "@/lib/queue/inngest-client";
 import { convertPdfToPng } from "@/lib/pdf/server-convert";
+import { withRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { scanFile, getScanErrorMessage } from "@/lib/security/virus-scanner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +43,7 @@ function getSupabaseAdmin() {
   return supabaseAdmin;
 }
 
-export async function POST(request: NextRequest) {
+async function uploadHandler(request: NextRequest) {
   try {
     console.log("[Upload] POST request received");
 
@@ -102,6 +104,35 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+    }
+
+    // Virus scan files before processing
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      console.log(`[Upload] Scanning file for viruses: ${file.name}`);
+      const scanResult = await scanFile({
+        buffer,
+        filename: file.name,
+        mimeType: file.type,
+      });
+
+      if (!scanResult.safe) {
+        const errorMessage = getScanErrorMessage(scanResult);
+        console.error(`[Upload] File rejected by virus scanner: ${file.name}`, scanResult);
+
+        return NextResponse.json(
+          {
+            error: errorMessage || 'File rejected for security reasons',
+            fileName: file.name,
+            scanResult,
+          },
+          { status: 400 },
+        );
+      }
+
+      console.log(`[Upload] File scan passed: ${file.name} (${scanResult.provider})`);
     }
 
     // Get tenant ID from headers (set by middleware)
@@ -367,3 +398,10 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Apply rate limiting: 10 uploads per 15 minutes per tenant
+export const POST = withRateLimit(
+  uploadHandler,
+  RATE_LIMITS.UPLOAD,
+  'invoice-upload'
+);

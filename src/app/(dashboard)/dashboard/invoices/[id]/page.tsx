@@ -120,7 +120,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
       `)
       .eq('id', id)
       .eq('tenantId', tenantId)
-      .single();
+      .single() as { data: any; error: any };
 
     // Sort line items by lineNumber if present
     if (invoiceData?.lineItems) {
@@ -216,7 +216,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
           country: invoice.company.country,
         }
       : undefined,
-    lineItems: invoice.lineItems.map((item) => ({
+    lineItems: invoice.lineItems.map((item: any) => ({
       id: item.id,
       lineNumber: item.lineNumber,
       description: item.description,
@@ -292,7 +292,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
       </div>
 
       {/* Main Content */}
-      <InvoiceDetailView invoice={invoiceData} />
+      <InvoiceDetailView invoice={invoice as any} />
     </div>
   );
 }

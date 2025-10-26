@@ -8,10 +8,11 @@ import { PrismaClient } from '@prisma/client';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { submitInvoiceToKSeF } from '@/lib/ksef/submission-service';
 import { createAuditLog, getClientIp, getUserAgent } from '@/lib/audit/logger';
+import { withRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 const prisma = new PrismaClient();
 
-export async function POST(request: NextRequest) {
+async function ksefSubmitHandler(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -114,3 +115,10 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Apply rate limiting: 100 requests per minute per tenant (use API preset)
+export const POST = withRateLimit(
+  ksefSubmitHandler,
+  RATE_LIMITS.API,
+  'ksef-submit'
+);

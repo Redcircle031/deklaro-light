@@ -117,7 +117,7 @@ async function getInvoices(tenantId: string) {
       `)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(100) as { data: any[] | null; error: any };
 
     if (error) {
       console.error('Failed to fetch invoices:', error);

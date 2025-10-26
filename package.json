@@ -19,6 +19,7 @@
   "dependencies": {
     "@google-cloud/vision": "^5.3.4",
     "@prisma/client": "^6.17.1",
+    "@sentry/nextjs": "^10.22.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.74.0",
     "@types/tesseract.js": "^0.0.2",

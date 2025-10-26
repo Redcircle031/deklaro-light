@@ -211,7 +211,7 @@ export default async function CompaniesPage() {
         <div className="rounded-lg border bg-card p-4">
           <div className="text-sm font-medium text-gray-600 dark:text-gray-400">Active This Month</div>
           <div className="text-2xl font-bold mt-1">
-            {companies.filter((c) => {
+            {companies.filter((c: any) => {
               if (!c.lastInvoiceDate) return false;
               const lastInvoice = new Date(c.lastInvoiceDate);
               const monthAgo = new Date();

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 // Debug: Check what Next.js sees
 console.log('🔍 Next.js Config Loading...');
@@ -19,4 +20,18 @@ const nextConfig: NextConfig = {
   // No need to hardcode them here - they're injected at build time
 };
 
-export default nextConfig;
+// Sentry configuration options
+const sentryWebpackPluginOptions = {
+  // Additional config options for the Sentry webpack plugin
+  silent: true, // Suppresses all logs
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+};
+
+// Wrap config with Sentry only if enabled
+const isSentryEnabled = process.env.SENTRY_ENABLED === 'true';
+
+export default isSentryEnabled
+  ? withSentryConfig(nextConfig, sentryWebpackPluginOptions)
+  : nextConfig;

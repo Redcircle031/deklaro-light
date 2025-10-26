@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
 import { inngest } from '@/lib/queue/inngest-client';
+import { withRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 // Request schema
 const ProcessOCRRequestSchema = z.object({
@@ -21,7 +22,7 @@ const ProcessOCRRequestSchema = z.object({
  * POST /api/ocr/process
  * Start OCR processing for an invoice
  */
-export async function POST(request: NextRequest) {
+async function ocrProcessHandler(request: NextRequest) {
   try {
     // Get tenant ID from headers
     const tenantId = request.headers.get('x-tenant-id');
@@ -168,4 +169,11 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Apply rate limiting: 30 OCR requests per 5 minutes per tenant
+export const POST = withRateLimit(
+  ocrProcessHandler,
+  RATE_LIMITS.OCR,
+  'ocr-process'
+);
 

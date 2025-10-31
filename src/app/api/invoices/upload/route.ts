@@ -6,7 +6,6 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAuditLog, getClientIp, getUserAgent } from "@/lib/audit/logger";
 import { checkInvoiceLimit, incrementInvoiceCount, incrementStorageUsage } from "@/lib/usage/tracker";
 import { inngest } from "@/lib/queue/inngest-client";
-import { convertPdfToPng } from "@/lib/pdf/server-convert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -141,41 +140,19 @@ export async function POST(request: NextRequest) {
     const uploadResults = [];
 
     for (const file of files) {
+      const fileExt = file.name.split(".").pop();
       const timestamp = Date.now();
+      const storageFileName = `${tenantId}/${timestamp}-${crypto.randomUUID()}.${fileExt}`;
 
       // Convert File to ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
-      let buffer = Buffer.from(arrayBuffer);
-      let contentType = file.type;
-      let fileExt = file.name.split(".").pop();
-      let originalFileName = file.name;
-
-      // Convert PDF to PNG for OpenAI Vision API compatibility
-      if (file.type === 'application/pdf') {
-        try {
-          console.log(`[Upload] Converting PDF to PNG: ${file.name}`);
-          buffer = await convertPdfToPng(buffer);
-          contentType = 'image/png';
-          fileExt = 'png';
-          console.log(`[Upload] PDF converted successfully: ${originalFileName} -> ${fileExt}`);
-        } catch (convertError) {
-          console.error('[Upload] PDF conversion failed:', convertError);
-          uploadResults.push({
-            fileName: file.name,
-            success: false,
-            error: `PDF conversion failed: ${convertError instanceof Error ? convertError.message : 'Unknown error'}`,
-          });
-          continue;
-        }
-      }
-
-      const storageFileName = `${tenantId}/${timestamp}-${crypto.randomUUID()}.${fileExt}`;
+      const buffer = Buffer.from(arrayBuffer);
 
       // Upload to Supabase Storage using admin client (bypasses RLS)
       const { data, error } = await getSupabaseAdmin().storage
         .from("invoices")
         .upload(storageFileName, buffer, {
-          contentType,
+          contentType: file.type,
           upsert: false,
         });
 
@@ -202,8 +179,8 @@ export async function POST(request: NextRequest) {
           id: invoiceId,
           tenant_id: tenantId,
           original_file_url: data.path,
-          file_name: originalFileName, // Keep original PDF filename
-          file_size: buffer.length, // Use converted buffer size
+          file_name: file.name,
+          file_size: file.size,
           uploaded_by: user.id,
           status: ocrText ? "UPLOADED_WITH_OCR" : "UPLOADED", // Mark if OCR already done
           currency: "PLN",
